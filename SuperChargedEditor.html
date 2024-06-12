@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperChargedEditor</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1e1e1e;
+            overflow: hidden;
+            position: relative;
+        }
+        #text-editor {
+            width: 50%;
+            height: 50vh;
+            padding: 20px;
+            font-size: 18px;
+            border: 2px solid #444;
+            border-radius: 10px;
+            outline: none;
+            resize: none;
+            position: relative;
+            z-index: 2;
+            background-color: #333;
+            color: #fff;
+            caret-color: transparent; /* Hide default caret */
+            transition: border-color 0.5s;
+        }
+        #custom-caret {
+            position: absolute;
+            width: 8px; /* 50% thinner */
+            background-color: rgba(255, 0, 0, 0.7);
+            height: 1.2em;
+            z-index: 3;
+            animation: caret-blink 1.55s infinite; /* 55% slower */
+        }
+        #particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+        }
+       .highlight-line {
+            position: absolute;
+            height: 1.2em;
+            background-color: rgba(255, 0, 0, 0.1);
+            z-index: 3;
+        }
+        @keyframes caret-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @keyframes flash-border {
+            0% { border-color: #444; }
+            50% { border-color: rgba(255, 0, 0, 0.25); } /* 25% as strong */
+            100% { border-color: #444; }
+        }
+        ::selection {
+            background: rgba(255, 0, 0, 0.5); /* Red theme for text selection */
+        }
+    </style>
+</head>
+<body>
+    <textarea id="text-editor"></textarea>
+    <div id="highlight-line" class="highlight-line"></div>
+    <div id="custom-caret"></div>
+    <canvas id="particle-canvas"></canvas>
+    <audio id="type-sound" src="https://raw.githubusercontent.com/cgmatter/superchargededitor/main/typesound.wav" preload="auto"></audio>
+    <audio id="delete-sound" src="https://raw.githubusercontent.com/cgmatter/superchargededitor/main/deletesound.wav" preload="auto"></audio>
+    <audio id="enter-sound" src="https://raw.githubusercontent.com/cgmatter/superchargededitor/main/entersound.wav" preload="auto"></audio>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const textEditor = document.getElementById('text-editor');
+            const particleCanvas = document.getElementById('particle-canvas');
+            const customCaret = document.getElementById('custom-caret');
+            const highlightLine = document.getElementById('highlight-line');
+            const typeSound = document.getElementById('type-sound');
+            const deleteSound = document.getElementById('delete-sound');
+            const enterSound = document.getElementById('enter-sound'); // Added line
+            const ctx = particleCanvas.getContext('2d');
+            let particles = [];
+            let currentFile = null;
+
+            particleCanvas.width = window.innerWidth;
+            particleCanvas.height = window.innerHeight;
+
+            function updateCaretAndHighlight() {
+                const { offsetLeft, offsetTop, scrollTop, clientWidth } = textEditor;
+                const { x, y } = getCaretCoordinates(textEditor);
+                customCaret.style.left = `${offsetLeft + x}px`;
+                customCaret.style.top = `${offsetTop + y - scrollTop}px`;
+                highlightLine.style.top = `${offsetTop + y - scrollTop}px`;
+                highlightLine.style.width = `${clientWidth - 40}px`;
+                highlightLine.style.left = `${offsetLeft}px`;
+            }
+
+            textEditor.addEventListener('input', (e) => {
+                updateCaretAndHighlight();
+
+                if (e.inputType === 'deleteContentBackward') {
+                    deleteSound.currentTime = 0;
+                    deleteSound.volume = 0.4 + Math.random() * 0.3;
+                    deleteSound.playbackRate = 0.3 + Math.random() * 0.2;
+                    deleteSound.play();
+                } else {
+                    typeSound.currentTime = 0;
+                    typeSound.volume = 0.4 + Math.random() * 0.6;
+                    typeSound.playbackRate = 0.8 + Math.random() * 0.4;
+                    typeSound.play();
+                }
+
+                createParticles(customCaret.offsetLeft, customCaret.offsetTop);
+                addShake();
+                flashLine();
+                flashBorder();
+            });
+
+            textEditor.addEventListener('keydown', (e) => {
+                updateCaretAndHighlight();
+                if (e.key === 'Enter' || e.key === 'Return') { // Modified condition
+                    enterSound.currentTime = 0;
+                    enterSound.volume = 0.4 + Math.random() * 0.6;
+                    enterSound.playbackRate = 0.8 + Math.random() * 0.4;
+                    enterSound.play(); // Play enterSound
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                    setTimeout(updateCaretAndHighlight, 0);
+                }
+            });
+            textEditor.addEventListener('click', updateCaretAndHighlight);
+            textEditor.addEventListener('scroll', updateCaretAndHighlight);
+
+            function getCaretCoordinates(element) {
+                const caretPosition = element.selectionStart;
+                const div = document.createElement('div');
+                const span = document.createElement('span');
+                const copyStyle = getComputedStyle(element);
+
+                for (const prop of copyStyle) {
+                    div.style[prop] = copyStyle[prop];
+                }
+
+                div.style.position = 'absolute';
+                div.style.visibility = 'hidden';
+                div.style.whiteSpace = 'pre-wrap';
+                div.textContent = element.value.substr(0, caretPosition);
+                span.textContent = element.value.substr(caretPosition) || '.';
+                div.appendChild(span);
+                document.body.appendChild(div);
+                const { offsetLeft: x, offsetTop: y } = span;
+                document.body.removeChild(div);
+
+                return { x, y };
+            }
+
+            function createParticles(x, y) {
+                const color = 'rgba(255, 0, 0, 0.5)'; // Twice as visible
+                const particleCount = 7.5;
+                for (let i = 0; i < particleCount; i++) {
+                    particles.push(new Particle(x, y, color));
+                }
+            }
+
+            function Particle(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.size = Math.random() * 5 + 1;
+                this.speedX = Math.random() * 4.5 - 2.25;
+                this.speedY = Math.random() * 4.5 - 2.25;
+                this.color = color;
+            }
+
+            Particle.prototype.update = function() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.size *= 0.9; // Last 60% longer
+            }
+
+            Particle.prototype.draw = function() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            function handleParticles() {
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw();
+
+                    if (particles[i].size < 0.2) {
+                        particles.splice(i, 1);
+                        i--;
+                    }
+                }
+            }
+
+            function animate() {
+                ctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+                handleParticles();
+                requestAnimationFrame(animate);
+            }
+
+            function addShake() {
+                textEditor.classList.add('shake');
+                setTimeout(() => {
+                    textEditor.classList.remove('shake');
+                }, 150);
+            }
+
+            function flashLine() {
+                highlightLine.classList.add('flash');
+                setTimeout(() => {
+                    highlightLine.classList.remove('flash');
+                }, 200);
+            }
+
+            function flashBorder() {
+                textEditor.classList.add('flash-border');
+                setTimeout(() => {
+                    textEditor.classList.remove('flash-border');
+                }, 200);
+            }
+
+            // Drag and drop functionality
+            textEditor.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+
+            textEditor.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file && file.type === "text/plain") {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        textEditor.value = evt.target.result;
+                        currentFile = file;
+                        updateCaretAndHighlight();
+                    };
+                    reader.readAsText(file);
+                }
+            });
+
+            // Save functionality
+            document.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 's') {
+                    e.preventDefault();
+                    saveFile();
+                }
+            });
+
+            function saveFile() {
+                if (currentFile) {
+                    const file = new Blob([textEditor.value], { type: 'text/plain' });
+                    const a = document.createElement('a');
+                    const url = URL.createObjectURL(file);
+                    a.href = url;
+                    a.download = currentFile.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    }, 0);
+                }
+            }
+
+            animate();
+        });
+    </script>
+    <style>
+        @keyframes shake {
+            0% { transform: translate(0px, 0px) rotate(0deg); }
+            10% { transform: translate(-1.2px, -2.4px) rotate(-0.3deg); }
+            20% { transform: translate(-2.4px, 0px) rotate(0.6deg); }
+            30% { transform: translate(2.4px, 2.4px) rotate(0deg); }
+            40% { transform: translate(1.2px, -1.2px) rotate(0.6deg); }
+            50% { transform: translate(-1.2px, 2.4px) rotate(-0.3deg); }
+            60% { transform: translate(-2.4px, 1.2px) rotate(0deg); }
+            70% { transform: translate(2.4px, 1.2px) rotate(-0.3deg); }
+            80% { transform: translate(-1.2px, -1.2px) rotate(0.6deg); }
+            90% { transform: translate(1.2px, 2.4px) rotate(0deg); }
+            100% { transform: translate(1.2px, -2.4px) rotate(-0.3deg); }
+        }
+
+       .shake {
+            animation: shake 0.15s;
+            animation-iteration-count: 1;
+        }
+
+        .flash {
+            animation: flash 0.2s;
+        }
+
+        @keyframes flash {
+            0% { background-color: rgba(255, 0, 0, 0.1); }
+            50% { background-color: rgba(255, 0, 0, 0.5); }
+            100% { background-color: rgba(255, 0, 0, 0.1); }
+        }
+
+        .flash-border {
+            animation: flash-border 0.2s;
+        }
+    </style>
+</body>
+</html>
