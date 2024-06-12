@@ -85,10 +85,15 @@
             const highlightLine = document.getElementById('highlight-line');
             const typeSound = document.getElementById('type-sound');
             const deleteSound = document.getElementById('delete-sound');
-            const enterSound = document.getElementById('enter-sound'); // Added line
+            const enterSound = document.getElementById('enter-sound');
             const ctx = particleCanvas.getContext('2d');
             let particles = [];
             let currentFile = null;
+
+            // Preload sounds
+            typeSound.play().then(() => typeSound.pause()).catch(() => {});
+            deleteSound.play().then(() => deleteSound.pause()).catch(() => {});
+            enterSound.play().then(() => enterSound.pause()).catch(() => {});
 
             particleCanvas.width = window.innerWidth;
             particleCanvas.height = window.innerHeight;
@@ -126,11 +131,11 @@
 
             textEditor.addEventListener('keydown', (e) => {
                 updateCaretAndHighlight();
-                if (e.key === 'Enter' || e.key === 'Return') { // Modified condition
+                if (e.key === 'Enter' || e.key === 'Return') {
                     enterSound.currentTime = 0;
                     enterSound.volume = 0.4 + Math.random() * 0.6;
                     enterSound.playbackRate = 0.8 + Math.random() * 0.4;
-                    enterSound.play(); // Play enterSound
+                    enterSound.play();
                 } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                     setTimeout(updateCaretAndHighlight, 0);
                 }
